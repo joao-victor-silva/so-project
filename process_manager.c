@@ -15,14 +15,12 @@ void adicionar_processo_ao_gerenciador(GerenciadorProcessos *gerenciador, Proces
     TempoProcessos *atual = gerenciador->inicio;
     TempoProcessos *anterior = NULL;
 
-    // Busca ou cria o grupo para o tempo de início
     while (atual != NULL && atual->tempo_inicio < processo->tempo_inicio) {
         anterior = atual;
         atual = atual->proximo;
     }
 
     if (atual == NULL || atual->tempo_inicio != processo->tempo_inicio) {
-        // Cria um novo grupo para este tempo
         TempoProcessos *novo = (TempoProcessos *)malloc(sizeof(TempoProcessos));
         novo->tempo_inicio = processo->tempo_inicio;
         novo->num_processos = 0;
@@ -37,19 +35,18 @@ void adicionar_processo_ao_gerenciador(GerenciadorProcessos *gerenciador, Proces
         atual = novo;
     }
 
-    // Adiciona o processo na lista ordenada por prioridade
     int pos = atual->num_processos;
     while (pos > 0 && atual->processos[pos - 1].prioridade > processo->prioridade) {
         atual->processos[pos] = atual->processos[pos - 1];
         pos--;
     }
 
-    atual->processos[pos] = (ProcessoAgrupado){
+    atual->processos[pos] = (Processo){
         .id = processo->id,
         .prioridade = processo->prioridade,
         .tempo_inicio = processo->tempo_inicio,
+        .executavel = processo->executavel,
     };
-    strcpy(atual->processos[pos].executavel, processo->executavel);
 
     atual->num_processos++;
 }
@@ -65,7 +62,18 @@ GerenciadorProcessos carregar_processos(const char *nome_arquivo) {
     inicializar_gerenciador(&gerenciador);
 
     Processo processo;
-    while (fscanf(arquivo, "%d %s %d %d", &processo.id, processo.executavel, &processo.tempo_inicio, &processo.prioridade) == 4) {
+    char executavel[50];
+    while (fscanf(arquivo, "%d %s %d %d", &processo.id, executavel, &processo.tempo_inicio, &processo.prioridade) == 4) {
+        if (strcmp(executavel, "teste10") == 0) {
+            processo.executavel = TESTE10;
+        } else if (strcmp(executavel, "teste20") == 0) {
+            processo.executavel = TESTE20;
+        } else if (strcmp(executavel, "teste30") == 0) {
+            processo.executavel = TESTE30;
+        } else {
+            printf("Executável inválido: %s\n", executavel);
+            exit(EXIT_FAILURE);
+        }
         adicionar_processo_ao_gerenciador(&gerenciador, &processo);
         gerenciador.total_processos++;
     }
@@ -89,23 +97,19 @@ void adicionar_processos(SchedulerShared *scheduler, GerenciadorProcessos *geren
     while (gerenciador->inicio != NULL) {
         TempoProcessos *tempo_atual = obter_proximo_tempo(gerenciador);
 
-        // Aguarda até o tempo de início
         while (time(NULL) - scheduler->tempo_inicio < tempo_atual->tempo_inicio) {
             sleep(1);
         }
 
-
-        // Adiciona processos deste tempo ao escalonador
         for (int i = 0; i < tempo_atual->num_processos; i++) {
-            ProcessoAgrupado *processo = &tempo_atual->processos[i];
+            Processo *processo = &tempo_atual->processos[i];
             adicionar_entrada_tabela(&scheduler->tabela, processo->id, processo->prioridade, processo->executavel);
-            adicionar_fila(&scheduler->filas_prioridade[processo->prioridade], processo->id);
-            printf("Processo %d (%s) adicionado à fila de prioridade %d no tempo %d.\n",
-                   processo->id, processo->executavel, processo->prioridade, tempo_atual->tempo_inicio);
+            adicionar_na_fila(&scheduler->filas_prioridade[processo->prioridade], processo->id);
+            // printf("Processo %d (%s) adicionado à fila de prioridade %d no tempo %d.\n",
+            //        processo->id, processo->executavel, processo->prioridade, tempo_atual->tempo_inicio);
         }
 
         free(tempo_atual);
-        // imprimir_tabela_processos(&scheduler->tabela);
     }
 }
 
@@ -116,43 +120,11 @@ void imprimir_gerenciador(GerenciadorProcessos *gerenciador) {
     while (atual != NULL) {
         printf("Tempo de início: %d\n", atual->tempo_inicio);
         for (int i = 0; i < atual->num_processos; i++) {
-            ProcessoAgrupado *processo = &atual->processos[i];
+            Processo *processo = &atual->processos[i];
             printf("  ID: %d, Executável: %s, Prioridade: %d\n",
-                   processo->id, processo->executavel, processo->prioridade);
+                   processo->id, executavel_string(processo->executavel), processo->prioridade);
         }
         atual = atual->proximo;
     }
     printf("\n");
 }
-
-void imprimir_tabela_processos(TabelaProcessos *tabela) {
-    printf("\nTabela de Processos: (%d)\n", tabela->num_processos);
-    printf("%-5s %-5s %-12s %-12s %-12s %-10s %-10s %-10s\n", "ID", "PID", "Prioridade", "Executável", "Tempo Início", "Tempo Fim", "Execução", "Estado");
-
-    for (int i = 0; i < tabela->num_processos; i++) {
-        EntradaTabela *entrada = &tabela->entradas[i];
-        printf("%-5d %-5d %-12d %-12s %-12ld %-10ld %-10ld ",
-               entrada->id,
-               entrada->pid,
-               entrada->prioridade,
-               entrada->executavel,
-               entrada->tempo_inicio,
-               entrada->tempo_fim,
-               entrada->tempo_execucao);
-
-        switch (entrada->estado) {
-            case PRONTO:
-                printf("%-10s\n", "PRONTO");
-            break;
-            case EXECUTANDO:
-                printf("%-10s\n", "EXECUTANDO");
-            break;
-            case FINALIZADO:
-                printf("%-10s\n", "FINALIZADO");
-            break;
-        }
-    }
-    printf("\n");
-}
-
-

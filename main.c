@@ -31,14 +31,25 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     } else if (pid == 0) {
         adicionar_processos(scheduler, &gerenciador_processos);
-        imprimir_tabela_processos(&scheduler->tabela);
+        // imprimir_tabela_processos(&scheduler->tabela);
         exit(0);
     } else {
         executar_scheduler(scheduler);
+        double long soma_turnaround = 0;
         printf("Ordem de execução dos processos:\n");
+
         for (int i = 0; i < scheduler->ordem_index; i++) {
-            printf("Processo %d\n", scheduler->ordem[i]);
+            int id = scheduler->ordem[i];
+            EntradaTabela *processo = obter_entrada_tabela(&scheduler->tabela, id);
+            long turnaround = processo->tempo_fim - processo->tempo_inicio;
+            soma_turnaround += turnaround;
+
+            printf("Processo %d - Tempo de Turnaround: %ld segundos, Tempo de Execução: %ld segundos\n",
+                   processo->id, turnaround, processo->tempo_execucao);
         }
+
+        double long media_turnaround = soma_turnaround / scheduler->ordem_index;
+        printf("Tempo médio de Turnaround: %.2Lg segundos\n", media_turnaround);
         wait(NULL);
         destruir_memoria_compartilhada(shm_id, scheduler);
     }
