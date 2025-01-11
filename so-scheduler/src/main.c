@@ -235,23 +235,29 @@ void print_cpu(int core_count, Core *cpu) {
 void clock_tick(int quantum, Core *cpu, int core_count, Process **processes_table, int round_robin_queues_amount, Process ***round_robin_queues) {
     logInfo("--- clock tick...\n");
     for (int i = 0; i < core_count; i++) {
-        Process *process = cpu[i].process;
-        if (process != NULL) {
+        if (cpu[i].process != NULL) {
             cpu[i].quantum -= 1;
+            if (cpu[i].quantum <= 0) {
+                // kill(process->pid, SIGSTOP);
+                cpu[i].process->state = READY;
+                Process *round_robin_process = copy_process(cpu[i].process);
+                add_process_to_round_robin_queues(round_robin_process, *round_robin_queues);
 
-            /*if (cpu[i].quantum <= 0) {*/
-            /*    // kill(process->pid, SIGSTOP);*/
-            /*    // call scheduler*/
-            /*    // process = ...*/
-            /*    cpu[i].process = process;*/
-            /*    cpu[i].quantum = QUANTUM;*/
-            /*    //*/
-            /*    // kill(cpu[i].process->pid, SIGCONT);*/
-            /*}*/
+                // call scheduler
+                cpu[i].process = schedule_process(*processes_table, round_robin_queues_amount, *round_robin_queues);
+                if (cpu[i].process != NULL) {
+                    cpu[i].process->state = RUNNING;
+                    cpu[i].quantum = quantum;
+                }
+
+                // kill(cpu[i].process->pid, SIGCONT);
+            }
         } else {
             cpu[i].process = schedule_process(*processes_table, round_robin_queues_amount, *round_robin_queues);
-            cpu[i].process->state = RUNNING;
-            cpu[i].quantum = quantum;
+            if (cpu[i].process != NULL) {
+                cpu[i].process->state = RUNNING;
+                cpu[i].quantum = quantum;
+            }
         }
     }
 }
