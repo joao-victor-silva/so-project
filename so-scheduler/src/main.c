@@ -5,7 +5,7 @@
 #include <signal.h>
 
 #define ROUND_ROBIN_QUEUES_AMOUNT 4
-#define CORE_COUNT 1
+#define CORE_COUNT 2
 #define QUANTUM 5
 
 
