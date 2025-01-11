@@ -100,7 +100,7 @@ void executar_processo(SchedulerShared *scheduler, pid_t processos_em_execucao[s
     }
 }
 
-void checar_processos(SchedulerShared *scheduler, pid_t processos_em_execucao[scheduler->total_cores], int processos_executados) {
+void checar_processos(SchedulerShared *scheduler, pid_t processos_em_execucao[scheduler->total_cores], int *processos_executados) {
     for (int i = 0; i < scheduler->total_cores; i++) {
         if (processos_em_execucao[i] != -1) {
             int status;
@@ -121,7 +121,7 @@ void checar_processos(SchedulerShared *scheduler, pid_t processos_em_execucao[sc
                 processo->estado = FINALIZADO;
                 printf("Processo %d finalizado. Tempo total de execução: %ld segundos.\n",
                        processo->id, time(NULL) - processo->tempo_inicio);
-                processos_executados++;
+                (*processos_executados)++;
                 scheduler->ordem[scheduler->ordem_index++] = processo->id;
                 processos_em_execucao[i] = -1;
                 scheduler->cores_disponiveis++;
@@ -149,7 +149,7 @@ void executar_scheduler(SchedulerShared *scheduler) {
         if (scheduler->cores_disponiveis > 0) {
             executar_processo(scheduler, processos_em_execucao);
         }
-        checar_processos(scheduler, processos_em_execucao, processos_executados);
+        checar_processos(scheduler, processos_em_execucao, &processos_executados);
     }
 
     printf("Todos os processos foram executados. Finalizando o escalonador.\n");
