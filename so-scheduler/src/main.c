@@ -32,12 +32,18 @@ typedef struct core {
 } Core;
 
 void processes_orchestrator(int time_moment, Process **processes_list, Process **processes_table, Process ***round_robin_queues);
+void add_process_to_round_robin_queues(Process *process, Process **round_robin_queues);
+void add_process_to_round_robin_queue(Process *process, Process *round_robin_queue);
+
 void print_processes_table(Process *processes_table);
+void print_round_roubin_queues(int amount_of_queues, Process **round_robin_queues);
+void print_round_roubin_queue(Process *round_robin_queue);
 
 void clock_tick(Core *cpu, int core_count, Process **processes_table, Process ***round_robin_queues);
 
 Process* create_process(int id, char *command, int start_moment, int priority);
-void cleanup(Process *processes_table, Process **round_robin_queues);
+Process* copy_process(Process *process);
+void cleanup(Process *processes_table, Process **round_robin_queues, Core *cpu);
 void free_process(Process *process);
 
 typedef enum {
@@ -57,10 +63,6 @@ void logInfo(char *msg, ...);
 void logWarn(char *msg, ...);
 void logError(char *msg, ...);
 void logFatal(char *msg, ...);
-
-// process table
-
-// ready queue
 
 int main(int argc, char **argv) {
     logInfo("--- starting scheduler...\n");
@@ -88,11 +90,17 @@ int main(int argc, char **argv) {
 
         print_processes_table(processes_table);
         fprintf(stdout, "\n");
+        print_round_roubin_queues(ROUND_ROBIN_QUEUES_AMOUNT, round_robin_queues);
+        fprintf(stdout, "\n");
+
+        // maybe sleep here
+
+        clock_tick(cpu, CORE_COUNT, &processes_table, &round_robin_queues);
     }
 
 
     logInfo("--- deinitializing control structures...\n");
-    cleanup(processes_table, round_robin_queues);
+    cleanup(processes_table, round_robin_queues, cpu);
 
     logInfo("--- finishing scheduler...\n");
 }
@@ -118,6 +126,8 @@ void processes_orchestrator(int time_moment, Process **processes_list, Process *
         }
 
         if (process->start_moment == time_moment) {
+            Process *round_robin_process = copy_process(process);
+
             logInfo("    adding process %d in the processes table...\n", process->id);
             process->next = *processes_table;
             if (lhs != process) {
@@ -135,12 +145,34 @@ void processes_orchestrator(int time_moment, Process **processes_list, Process *
             if (process == *processes_list) {
                 *processes_list = lhs;
             }
+
+            add_process_to_round_robin_queues(round_robin_process, *round_robin_queues);
         } else {
             lhs = process;
         }
 
         process = rhs;
     }
+}
+
+void add_process_to_round_robin_queues(Process *process, Process **round_robin_queues) {
+    process->next = NULL;
+
+    if (round_robin_queues[process->priority] == NULL) {
+        round_robin_queues[process->priority] = process;
+        return;
+    }
+
+    add_process_to_round_robin_queue(process, round_robin_queues[process->priority]);
+}
+
+void add_process_to_round_robin_queue(Process *process, Process *round_robin_queue) {
+    if (round_robin_queue->next == NULL) {
+        round_robin_queue->next = process;
+        return;
+    }
+
+    add_process_to_round_robin_queue(process, round_robin_queue->next);
 }
 
 void print_processes_table(Process *processes_table) {
@@ -157,6 +189,26 @@ void print_processes_table(Process *processes_table) {
     fprintf(stdout, "%d\t%d\t%s\t%d\t%s\t%d\t%d\n", p->id, p->pid, state, p->time, p->command, p->start_moment, p->priority);
 }
 
+void print_round_roubin_queues(int amount_of_queues, Process **round_robin_queues) {
+    fprintf(stdout, "--- ROUND ROBIN QUEUES ---\n");
+    for (int i = 0; i < amount_of_queues; i++) {
+        fprintf(stdout, "RR %d: ", i);
+        print_round_roubin_queue(round_robin_queues[i]);
+    }
+}
+
+void print_round_roubin_queue(Process *round_robin_queue) {
+    if (round_robin_queue == NULL) {
+        fprintf(stdout, "NULL\n");
+        return;
+    }
+
+    char *state = round_robin_queue->state == READY ? "READY" : "RUNNING";
+    fprintf(stdout, "%d %s -> ", round_robin_queue->id, state);
+
+    print_round_roubin_queue(round_robin_queue->next);
+}
+
 void clock_tick(Core *cpu, int core_count, Process **processes_table, Process ***round_robin_queues) {
     for (int i = 0; i < core_count; i++) {
         Process *process = cpu[i].process;
@@ -164,13 +216,13 @@ void clock_tick(Core *cpu, int core_count, Process **processes_table, Process **
             cpu[i].quantum -= 1;
 
             if (cpu[i].quantum <= 0) {
-                kill(process->pid, SIGSTOP);
+                /*kill(process->pid, SIGSTOP);*/
                 // call scheduler
                 // process = ...
                 cpu[i].process = process;
                 cpu[i].quantum = QUANTUM;
                 //
-                kill(cpu[i].process->pid, SIGCONT);
+                /*kill(cpu[i].process->pid, SIGCONT);*/
             }
         }
     }
@@ -202,7 +254,33 @@ Process* create_process(int id, char *command, int start_moment, int priority) {
     return process;
 }
 
-void cleanup(Process *processes_table, Process **round_robin_queues) {
+Process* copy_process(Process *process) {
+    logInfo("--- creating a copy of process of id %d\n", process->id);
+
+    Process *copy = malloc(sizeof(Process));
+    copy->id = process->id;
+    copy->priority = process->priority;
+    copy->start_moment = process->start_moment;
+
+    copy->pid = process->pid;
+    copy->state = process->state;
+    copy->time = process->time;
+    copy->command = process->command;
+    copy->next = process->next;
+
+    logDebug("\tprocess->id = %d\n", copy->id);
+    logDebug("\tprocess->priority = %d\n", copy->priority);
+    logDebug("\tprocess->start_moment = %d\n", copy->start_moment);
+
+    logDebug("\tprocess->pid = %d\n", copy->pid);
+    logDebug("\tprocess->state = %d\n", copy->state);
+    logDebug("\tprocess->binary = %s\n", copy->command);
+    logDebug("\tprocess->next = %d\n\n", copy->next);
+
+    return copy;
+}
+
+void cleanup(Process *processes_table, Process **round_robin_queues, Core *cpu) {
     Process *process = processes_table;
     Process *next = NULL;
 
@@ -227,6 +305,9 @@ void cleanup(Process *processes_table, Process **round_robin_queues) {
     }
     logInfo("--- freeing round robin queues...\n");
     free(round_robin_queues);
+
+    logInfo("--- freeing cpu cores...\n");
+    free(cpu);
 }
 
 void free_process(Process *process) {
