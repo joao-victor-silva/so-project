@@ -1,3 +1,11 @@
+/*
+ * Alunos:
+ * - Augusto Suffert Monteiro - 200015095
+ *
+ * Versão do Compilador: gcc 11.4.0
+ * Sistema Operacional: Ubuntu 22.04.5 LTS
+ */
+
 #include <sys/types.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -48,8 +56,8 @@ int main(int argc, char *argv[]) {
                    processo->id, turnaround, processo->tempo_execucao);
         }
 
-        double long media_turnaround = soma_turnaround / scheduler->ordem_index;
-        printf("Tempo médio de Turnaround: %.2Lg segundos\n", media_turnaround);
+        double long media_turnaround = soma_turnaround / scheduler->total_processos;
+        printf("Tempo médio de Turnaround: %.2Lf segundos\n", media_turnaround);
         wait(NULL);
         destruir_memoria_compartilhada(shm_id, scheduler);
     }

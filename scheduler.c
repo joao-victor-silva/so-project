@@ -45,7 +45,7 @@ void executar_programa(EntradaTabela *entrada) {
     }
 }
 
-void executar_processo(SchedulerShared *scheduler, pid_t processos_em_execucao[scheduler->total_cores]) {
+void executar_processo(SchedulerShared *scheduler, pid_t processos_em_execucao[scheduler->total_cores], int *ordem[scheduler->total_cores], int ordem_index[scheduler->total_cores]) {
     for (int prioridade = 0; prioridade < 4; prioridade++) {
         int id;
 
@@ -59,6 +59,7 @@ void executar_processo(SchedulerShared *scheduler, pid_t processos_em_execucao[s
                 if (processos_em_execucao[i] == -1) {
                     processos_em_execucao[i] = id;
                     scheduler->cores_disponiveis--;
+                    ordem[i][ordem_index[i]++] = processo->id;
                     break;
                 }
             }
@@ -101,6 +102,14 @@ void executar_scheduler(SchedulerShared *scheduler) {
     printf("Iniciando o escalonador com %d cores e quantum de %d segundos.\n",
            scheduler->total_cores, scheduler->quantum);
 
+    int *ordem[scheduler->total_cores];
+    int ordem_index[scheduler->total_cores];
+
+    for (int i = 0; i < scheduler->total_cores; i++) {
+        ordem[i] = (int *)malloc(MAX_PROCESSES * sizeof(int));
+        ordem_index[i] = 0;
+    }
+
     int processos_executados = 0;
     pid_t processos_em_execucao[scheduler->total_cores];
 
@@ -113,10 +122,20 @@ void executar_scheduler(SchedulerShared *scheduler) {
             continue;
         }
         if (scheduler->cores_disponiveis > 0) {
-            executar_processo(scheduler, processos_em_execucao);
+            executar_processo(scheduler, processos_em_execucao, ordem, ordem_index);
         }
         checar_processos(scheduler, processos_em_execucao, &processos_executados);
     }
 
     printf("Todos os processos foram executados. Finalizando o escalonador.\n");
+    for (int i = 0; i < scheduler->total_cores; i++) {
+        printf("Core %d: ", i + 1);
+        for (int j = 0; j < ordem_index[i]; j++) {
+            printf("%d", ordem[i][j]);
+            if (j < ordem_index[i] - 1) {
+                printf(" -> ");
+            }
+        }
+        printf("\n");
+    }
 }
