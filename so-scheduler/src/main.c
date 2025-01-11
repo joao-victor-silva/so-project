@@ -3,11 +3,12 @@
 #include <string.h>
 #include <stdarg.h>
 #include <signal.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
 #define ROUND_ROBIN_QUEUES_AMOUNT 4
-#define CORE_COUNT 2
+#define CORE_COUNT 1
 #define QUANTUM 5
-
 
 typedef enum {
     READY,
@@ -19,17 +20,12 @@ typedef struct process {
     int priority;
     int start_moment;
 
-    int pid;
+    pid_t pid;
     State state;
     int time;
     char *command;
     struct process *next;
 } Process;
-
-/*typedef struct runtime_process {*/
-/*    Process *process_in_process_table;*/
-/*    Process *process_in_round_robin_queue;*/
-/*} RuntimeProcess;*/
 
 typedef struct core {
     int quantum;
@@ -45,11 +41,16 @@ void print_round_roubin_queues(int amount_of_queues, Process **round_robin_queue
 void print_round_roubin_queue(Process *round_robin_queue);
 void print_cpu(int core_count, Core *cpu);
 
+
 void clock_tick(int quantum, Core *cpu, int core_count, Process **processes_table, int round_robin_queues_amount, Process ***round_robin_queues);
 Process* schedule_process(Process *processes_table, int round_robin_queues_amount, Process **round_robin_queues);
+void wait_processes(Process **processes_table);
 
 Process* create_process(int id, char *command, int start_moment, int priority);
 Process* copy_process(Process *process);
+
+pid_t spawn_process(Process *process);
+
 void cleanup(Process *processes_table, int round_robin_queues_amount, Process **round_robin_queues, int core_count, Core *cpu);
 void free_process(Process *process);
 
@@ -86,13 +87,15 @@ int main(int argc, char **argv) {
     Process *process3 = create_process(3, "teste30", 20, 0);
     Process *process4 = create_process(4, "teste10", 15, 1);
 
-    process2->next = process1;
-    process3->next = process2;
-    process4->next = process3;
-    processes_list = process4;
+    /*process2->next = process1;*/
+    /*process3->next = process2;*/
+    /*process4->next = process3;*/
+    /*processes_list = process4;*/
+
+    processes_list = process2;
 
 
-    for (int i = 0; i < 25; i++) {
+    for (int i = 0; i < 30; i++) {
         processes_orchestrator(i, &processes_list, &processes_table, &round_robin_queues);
 
         print_processes_table(processes_table);
@@ -101,8 +104,10 @@ int main(int argc, char **argv) {
         fprintf(stdout, "\n");
 
         // maybe sleep here
+        sleep(1);
 
         clock_tick(QUANTUM, cpu, CORE_COUNT, &processes_table, ROUND_ROBIN_QUEUES_AMOUNT, &round_robin_queues);
+        wait_processes(&processes_table);
 
         print_cpu(CORE_COUNT, cpu);
         fprintf(stdout, "\n");
@@ -238,7 +243,8 @@ void clock_tick(int quantum, Core *cpu, int core_count, Process **processes_tabl
         if (cpu[i].process != NULL) {
             cpu[i].quantum -= 1;
             if (cpu[i].quantum <= 0) {
-                // kill(process->pid, SIGSTOP);
+                kill(cpu[i].process->pid, SIGSTOP);
+
                 cpu[i].process->state = READY;
                 Process *round_robin_process = copy_process(cpu[i].process);
                 add_process_to_round_robin_queues(round_robin_process, *round_robin_queues);
@@ -248,15 +254,25 @@ void clock_tick(int quantum, Core *cpu, int core_count, Process **processes_tabl
                 if (cpu[i].process != NULL) {
                     cpu[i].process->state = RUNNING;
                     cpu[i].quantum = quantum;
-                }
 
-                // kill(cpu[i].process->pid, SIGCONT);
+                    if (cpu[i].process->pid != -1) { 
+                        kill(cpu[i].process->pid, SIGCONT);
+                    } else {
+                        cpu[i].process->pid = spawn_process(cpu[i].process);
+                    }
+                }
             }
         } else {
             cpu[i].process = schedule_process(*processes_table, round_robin_queues_amount, *round_robin_queues);
             if (cpu[i].process != NULL) {
                 cpu[i].process->state = RUNNING;
                 cpu[i].quantum = quantum;
+
+                if (cpu[i].process->pid != -1) { 
+                    kill(cpu[i].process->pid, SIGCONT);
+                } else {
+                    cpu[i].process->pid = spawn_process(cpu[i].process);
+                }
             }
         }
     }
@@ -279,12 +295,55 @@ Process* schedule_process(Process *processes_table, int round_robin_queues_amoun
             while (process->id != process_in_round_robin_queue->id) {
                 process = process->next;
             }
+
+            free_process(process_in_round_robin_queue);
         }
 
         i++;
     } while (process == NULL && i < round_robin_queues_amount);
 
     return process;
+}
+
+void wait_processes(Process **processes_table) {
+    Process *lhs = *processes_table;
+    Process *process = *processes_table;
+    Process *rhs = NULL;
+
+    while (process != NULL) {
+        if (process->pid != -1) {
+            int status = 0;
+            pid_t result = waitpid(process->pid, &status, WNOHANG);
+            if (result == -1) {
+                logFatal("--- failed to child process status. exiting...\n");
+                exit(EXIT_FAILURE);
+            } else if (result != 0 && WIFEXITED(status)) {
+                logInfo("--- process of %d id and %d pid was finished...\n", process->id, process->pid);
+
+                rhs = process->next;
+                process->next = NULL;
+
+                if (lhs != process) {
+                    lhs->next = rhs;
+                } else {
+                    lhs = rhs;
+                }
+
+                if (process == *processes_table) {
+                    *processes_table = lhs;
+                }
+
+                free_process(process);
+            } else {
+                lhs = process;
+            }
+
+            process = rhs;
+        } else {
+            lhs = process;
+            process = rhs;
+        }
+    }
 }
 
 Process* create_process(int id, char *command, int start_moment, int priority) {
@@ -340,6 +399,22 @@ Process* copy_process(Process *process) {
     return copy;
 }
 
+pid_t spawn_process(Process *process) {
+    pid_t pid = fork();
+
+    switch (pid) {
+        case -1:
+            logFatal("--- failed to fork main process. exiting...");
+            exit(EXIT_FAILURE);
+        case 0:
+            execl(process->command, process->command, NULL);
+        default:
+            break;
+    }
+
+    return pid;
+}
+
 void cleanup(Process *processes_table, int round_robin_queues_amount, Process **round_robin_queues, int core_count, Core *cpu) {
     Process *process = processes_table;
     Process *next = NULL;
@@ -367,9 +442,6 @@ void cleanup(Process *processes_table, int round_robin_queues_amount, Process **
     free(round_robin_queues);
 
     logInfo("--- freeing cpu cores...\n");
-    /*for (int i = 0; i < core_count; i++) {*/
-    /*    free(cpu[i].process);*/
-    /*}*/
     free(cpu);
 }
 
