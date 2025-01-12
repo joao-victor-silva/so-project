@@ -75,11 +75,23 @@ void logFatal(char *msg, ...);
 int main(int argc, char **argv) {
     logInfo("--- starting scheduler...\n");
 
+    if (argc != 4) {
+        logFatal("--- invalid amount of arguments (%d), exiting...\n", argc);
+        exit(EXIT_FAILURE);
+    }
+
+    int core_count = atoi(argv[1]);
+    int quantum = atoi(argv[2]);
+    char *input_file_name = argv[3];
+
+    logDebug("--- Core Count = %d\n", core_count);
+    logDebug("--- Quantum = %d\n", core_count);
+    logDebug("--- Input file name = %s\n", input_file_name);
+
     logInfo("--- initializing control structures...\n");
     Process *processes_list = NULL;
     Process *processes_table = NULL;
     Process **round_robin_queues = malloc(ROUND_ROBIN_QUEUES_AMOUNT * sizeof(Process*));
-
     Core *cpu = malloc(CORE_COUNT * sizeof(Core));
 
     Process *process1 = create_process(1, "teste20", 0, 2);
@@ -91,9 +103,6 @@ int main(int argc, char **argv) {
     process3->next = process2;
     process4->next = process3;
     processes_list = process4;
-
-    /*process2->next = process1;*/
-    /*processes_list = process2;*/
 
     int i = 0;
     do {
