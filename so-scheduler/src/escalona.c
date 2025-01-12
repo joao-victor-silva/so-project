@@ -1,3 +1,9 @@
+// Matriculas
+//
+// Augusto Suffert Monteiro - 200015095
+// Ingrid Lorraine Rodrigues da Silva - 160125260
+// João Victor Rodrigues da Silva - 160127815
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

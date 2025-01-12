@@ -16,16 +16,10 @@ gcc src/teste20.c -o teste20
 gcc src/teste30.c -o teste30
 ```
 
-### Everything, the fun way (requires xargs)
+### Everything (requires xargs)
 
 ```shell
 ls src | sed 's/\.c//' | xargs -I {} gcc src/{}.c -o {}
-```
-
-### Everything, the boring way (requires make)
-
-```shell
-make
 ```
 
 ## Run
