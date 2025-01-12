@@ -1,0 +1,4 @@
+1 teste20 0 2
+2 teste10 0 0
+3 teste30 20 0
+4 teste10 15 1
