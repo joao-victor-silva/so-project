@@ -7,7 +7,7 @@
 #include <sys/wait.h>
 
 #define ROUND_ROBIN_QUEUES_AMOUNT 4
-#define CORE_COUNT 1
+#define CORE_COUNT 2
 #define QUANTUM 5
 
 typedef enum {
@@ -42,9 +42,9 @@ void print_round_roubin_queue(Process *round_robin_queue);
 void print_cpu(int core_count, Core *cpu);
 
 
-void clock_tick(int quantum, Core *cpu, int core_count, Process **processes_table, int round_robin_queues_amount, Process ***round_robin_queues);
+void clock_tick(int quantum, int core_count, Core *cpu, Process **processes_table, int round_robin_queues_amount, Process ***round_robin_queues);
 Process* schedule_process(Process *processes_table, int round_robin_queues_amount, Process **round_robin_queues);
-void wait_processes(Process **processes_table);
+void wait_processes(int core_count, Core *cpu, Process **processes_table);
 
 Process* create_process(int id, char *command, int start_moment, int priority);
 Process* copy_process(Process *process);
@@ -87,15 +87,16 @@ int main(int argc, char **argv) {
     Process *process3 = create_process(3, "teste30", 20, 0);
     Process *process4 = create_process(4, "teste10", 15, 1);
 
+    process2->next = process1;
+    process3->next = process2;
+    process4->next = process3;
+    processes_list = process4;
+
     /*process2->next = process1;*/
-    /*process3->next = process2;*/
-    /*process4->next = process3;*/
-    /*processes_list = process4;*/
+    /*processes_list = process2;*/
 
-    processes_list = process2;
-
-
-    for (int i = 0; i < 30; i++) {
+    int i = 0;
+    do {
         processes_orchestrator(i, &processes_list, &processes_table, &round_robin_queues);
 
         print_processes_table(processes_table);
@@ -106,12 +107,14 @@ int main(int argc, char **argv) {
         // maybe sleep here
         sleep(1);
 
-        clock_tick(QUANTUM, cpu, CORE_COUNT, &processes_table, ROUND_ROBIN_QUEUES_AMOUNT, &round_robin_queues);
-        wait_processes(&processes_table);
+        clock_tick(QUANTUM, CORE_COUNT, cpu, &processes_table, ROUND_ROBIN_QUEUES_AMOUNT, &round_robin_queues);
+        wait_processes(CORE_COUNT, cpu, &processes_table);
 
         print_cpu(CORE_COUNT, cpu);
         fprintf(stdout, "\n");
-    }
+
+        i++;
+    } while (processes_table != NULL);
 
 
     logInfo("--- deinitializing control structures...\n");
@@ -125,7 +128,7 @@ void processes_orchestrator(int time_moment, Process **processes_list, Process *
     Process *process = *processes_list;
     Process *rhs = NULL;
 
-    logInfo("--- spawning processes for the time moment %d...\n", time_moment);
+    logInfo("--- creating processes for the time moment %d...\n", time_moment);
     while (process != NULL) {
         if (process != NULL) {
             logDebug("process = %d\n", process->id);
@@ -237,12 +240,13 @@ void print_cpu(int core_count, Core *cpu) {
     }
 }
 
-void clock_tick(int quantum, Core *cpu, int core_count, Process **processes_table, int round_robin_queues_amount, Process ***round_robin_queues) {
+void clock_tick(int quantum, int core_count, Core *cpu, Process **processes_table, int round_robin_queues_amount, Process ***round_robin_queues) {
     logInfo("--- clock tick...\n");
     for (int i = 0; i < core_count; i++) {
         if (cpu[i].process != NULL) {
             cpu[i].quantum -= 1;
             if (cpu[i].quantum <= 0) {
+                logInfo("--- stoping process %d...\n", cpu[i].process->id);
                 kill(cpu[i].process->pid, SIGSTOP);
 
                 cpu[i].process->state = READY;
@@ -256,6 +260,7 @@ void clock_tick(int quantum, Core *cpu, int core_count, Process **processes_tabl
                     cpu[i].quantum = quantum;
 
                     if (cpu[i].process->pid != -1) { 
+                        logInfo("--- resuming process %d...\n", cpu[i].process->id);
                         kill(cpu[i].process->pid, SIGCONT);
                     } else {
                         cpu[i].process->pid = spawn_process(cpu[i].process);
@@ -269,6 +274,7 @@ void clock_tick(int quantum, Core *cpu, int core_count, Process **processes_tabl
                 cpu[i].quantum = quantum;
 
                 if (cpu[i].process->pid != -1) { 
+                    logInfo("--- resuming process %d...\n", cpu[i].process->id);
                     kill(cpu[i].process->pid, SIGCONT);
                 } else {
                     cpu[i].process->pid = spawn_process(cpu[i].process);
@@ -305,12 +311,14 @@ Process* schedule_process(Process *processes_table, int round_robin_queues_amoun
     return process;
 }
 
-void wait_processes(Process **processes_table) {
+void wait_processes(int core_count, Core *cpu, Process **processes_table) {
+    logInfo("--- handling finished processes...\n");
     Process *lhs = *processes_table;
     Process *process = *processes_table;
     Process *rhs = NULL;
 
     while (process != NULL) {
+        rhs = process->next;
         if (process->pid != -1) {
             int status = 0;
             pid_t result = waitpid(process->pid, &status, WNOHANG);
@@ -320,9 +328,7 @@ void wait_processes(Process **processes_table) {
             } else if (result != 0 && WIFEXITED(status)) {
                 logInfo("--- process of %d id and %d pid was finished...\n", process->id, process->pid);
 
-                rhs = process->next;
                 process->next = NULL;
-
                 if (lhs != process) {
                     lhs->next = rhs;
                 } else {
@@ -331,6 +337,12 @@ void wait_processes(Process **processes_table) {
 
                 if (process == *processes_table) {
                     *processes_table = lhs;
+                }
+
+                for (int i = 0; i < core_count; i++) {
+                    if (cpu[i].process != NULL && cpu[i].process->id == process->id) {
+                        cpu[i].process = NULL;
+                    }
                 }
 
                 free_process(process);
@@ -400,6 +412,7 @@ Process* copy_process(Process *process) {
 }
 
 pid_t spawn_process(Process *process) {
+    logInfo("--- spawning process %d...\n", process->id);
     pid_t pid = fork();
 
     switch (pid) {
@@ -409,6 +422,8 @@ pid_t spawn_process(Process *process) {
         case 0:
             execl(process->command, process->command, NULL);
         default:
+            process->pid = pid;
+            logInfo("--- spawning process %d with pid %d...\n", process->id, process->pid);
             break;
     }
 
